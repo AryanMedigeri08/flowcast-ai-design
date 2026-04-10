@@ -15,15 +15,9 @@ interface SidebarProps {
 }
 
 const navItems: { view: DashboardView; label: string; icon: typeof LayoutDashboard }[] = [
-  { view: "executive",      label: "Overview",           icon: LayoutDashboard },
-  { view: "catalog-intelligence", label: "Catalog Intel", icon: Network },
-  { view: "sku-deep-dive",  label: "SKU Deep Dive",      icon: Search },
-  { view: "demand",         label: "Demand",             icon: BarChart3 },
-  { view: "signals",        label: "Signals",            icon: Radio },
-  { view: "returns",        label: "Returns",            icon: Undo2 },
-  { view: "inventory",      label: "Inventory",          icon: Package },
-  { view: "simulation",     label: "Simulation",         icon: FlaskConical },
-  { view: "explainability", label: "Explainability",     icon: Brain },
+  { view: "executive",            label: "Overview",       icon: LayoutDashboard },
+  { view: "catalog-intelligence", label: "Catalog Intel",  icon: Network },
+  { view: "sku-deep-dive",        label: "SKU Workspace",  icon: Search },
 ];
 
 const Sidebar = ({

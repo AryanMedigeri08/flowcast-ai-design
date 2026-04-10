@@ -1,12 +1,21 @@
 import { useState, useEffect, useMemo } from "react";
 import type { RetailBrainState } from "@/hooks/useRetailBrain";
+import type { SKUTab } from "@/data/types";
 import { getBrand } from "@/data/brands";
 import { skuCatalog } from "@/data/brands";
 import { generateDemandForecast } from "@/data/generators";
 import {
   Package, AlertTriangle, Undo2, MapPin, Tag, ArrowRight,
-  TrendingUp, TrendingDown, Award,
+  TrendingUp, TrendingDown, Award, LayoutDashboard, BarChart3, Radio, FlaskConical, Brain
 } from "lucide-react";
+
+import DemandView from "@/components/demand/DemandView";
+import AnomalyPanel from "@/components/demand/AnomalyPanel";
+import SignalsView from "@/components/signals/SignalsView";
+import ReturnsView from "@/components/returns/ReturnsView";
+import InventoryView from "@/components/inventory/InventoryView";
+import SimulationView from "@/components/simulation/SimulationView";
+import ExplainView from "@/components/explainability/ExplainView";
 
 // ─── SKU Health Score computation ──────────────────────────
 function computeHealthScore(brain: RetailBrainState): number {
@@ -207,33 +216,19 @@ const SKUDeepDive = ({ brain }: { brain: RetailBrainState }) => {
     return first7 > 0 ? ((last7 - first7) / first7) * 100 : 0;
   }, [brain.forecast]);
 
-  return (
-    <div className="space-y-6 animate-slide-up">
-      {/* ─── Product Header ─── */}
-      <div>
-        <div className="flex items-center gap-2 mb-1.5">
-          <span
-            className="text-[10px] font-semibold px-2 py-0.5 rounded-md"
-            style={{ background: `hsl(${brand.color} / 0.12)`, color: `hsl(${brand.color})` }}
-          >
-            {brand.name}
-          </span>
-          <span className="text-[10px] text-muted-foreground/30 font-mono-data">{sku.id}</span>
-        </div>
-        <h1 className="text-3xl font-light tracking-tight text-foreground">{sku.name}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {sku.category} · <span className="font-mono-data">${sku.price.toLocaleString()}</span>
-        </p>
-        <div className="flex items-center gap-1.5 mt-2">
-          <Tag className="w-3 h-3 text-muted-foreground/30" />
-          {sku.seasonalPeak.map((s) => (
-            <span key={s} className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/[0.06] text-amber-400/70 border border-amber-500/10">
-              {s}
-            </span>
-          ))}
-        </div>
-      </div>
 
+  const tabs: { id: SKUTab; label: string; icon: any }[] = [
+    { id: "overview", label: "Overview", icon: LayoutDashboard },
+    { id: "demand", label: "Demand", icon: BarChart3 },
+    { id: "signals", label: "Signals", icon: Radio },
+    { id: "returns", label: "Returns", icon: Undo2 },
+    { id: "inventory", label: "Inventory", icon: Package },
+    { id: "simulation", label: "Simulation", icon: FlaskConical },
+    { id: "explainability", label: "Explainability", icon: Brain },
+  ];
+
+  const renderOverview = () => (
+    <div className="space-y-6 animate-slide-up">
       {/* ─── SKU Health Score + Quick Stats ─── */}
       <div className="p-5 rounded-2xl bg-card border border-border/15">
         <div className="flex flex-col md:flex-row items-center gap-6">
@@ -449,6 +444,132 @@ const SKUDeepDive = ({ brain }: { brain: RetailBrainState }) => {
             ))}
           </div>
         </div>
+      </div>
+    </div>
+  );
+
+  const renderActiveTab = () => {
+    switch (brain.activeTab) {
+      case "demand":
+        return (
+          <div className="grid lg:grid-cols-3 gap-6 animate-slide-up bg-background">
+            <div className="lg:col-span-2">
+              <DemandView
+                forecast={brain.forecast}
+                decomposition={brain.decomposition}
+                skuName={brain.currentSKU.name}
+              />
+            </div>
+            <div>
+              <AnomalyPanel
+                anomalies={brain.anomalies}
+                intent={brain.intentAcceleration}
+              />
+            </div>
+          </div>
+        );
+      case "signals":
+        return (
+          <div className="animate-slide-up bg-background">
+            <SignalsView
+              fusion={brain.signalFusion}
+              intent={brain.intentAcceleration}
+            />
+          </div>
+        );
+      case "returns":
+        return (
+          <div className="animate-slide-up bg-background">
+            <ReturnsView
+              data={brain.returnAnalysis}
+              skuName={brain.currentSKU.name}
+              returnExplanation={brain.returnExplanation}
+            />
+          </div>
+        );
+      case "inventory":
+        return (
+          <div className="animate-slide-up bg-background">
+            <InventoryView
+              data={brain.inventoryDecision}
+              skuName={brain.currentSKU.name}
+            />
+          </div>
+        );
+      case "simulation":
+        return (
+          <div className="animate-slide-up bg-background">
+            <SimulationView
+              params={brain.simParams}
+              onParamsChange={brain.setSimParams}
+              result={brain.simulation}
+              skuName={brain.currentSKU.name}
+            />
+          </div>
+        );
+      case "explainability":
+        return (
+          <div className="animate-slide-up bg-background">
+            <ExplainView data={brain.explanation} />
+          </div>
+        );
+      case "overview":
+      default:
+        return renderOverview();
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* ─── Product Header ─── */}
+      <div className="bg-card border border-border/15 p-6 rounded-2xl">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-md"
+            style={{ background: `hsl(${brand.color} / 0.12)`, color: `hsl(${brand.color})` }}
+          >
+            {brand.name}
+          </span>
+          <span className="text-[10px] text-muted-foreground/30 font-mono-data">{sku.id}</span>
+        </div>
+        <h1 className="text-3xl font-light tracking-tight text-foreground">{sku.name}</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          {sku.category} · <span className="font-mono-data">${sku.price.toLocaleString()}</span>
+        </p>
+        <div className="flex items-center gap-1.5 mt-2">
+          <Tag className="w-3 h-3 text-muted-foreground/30" />
+          {sku.seasonalPeak.map((s) => (
+            <span key={s} className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/[0.06] text-amber-400/70 border border-amber-500/10">
+              {s}
+            </span>
+          ))}
+        </div>
+
+        {/* ─── Tab Navigation ─── */}
+        <div className="mt-6 flex items-center overflow-x-auto no-scrollbar border-b border-border/20">
+          {tabs.map((tab) => {
+            const isActive = brain.activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => brain.setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-all shrink-0
+                  ${isActive 
+                    ? "border-primary text-primary font-medium" 
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/20"
+                  }`}
+              >
+                <tab.icon className={`w-4 h-4 ${isActive ? "text-primary" : "text-muted-foreground/50"}`} />
+                <span className="text-sm">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ─── Tab Content ─── */}
+      <div>
+        {renderActiveTab()}
       </div>
     </div>
   );

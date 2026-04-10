@@ -709,7 +709,8 @@ export function generateDynamicNotifications(): DynamicNotification[] {
         isRead: skuRng() > 0.7,
         actionSuggestion: `Increase reorder by ${Math.round(deviation * 20)}% and alert warehouse team`,
         icon: "TrendingUp",
-        relatedView: "demand",
+        relatedView: "sku-deep-dive",
+        relatedTab: "demand",
       });
     }
 
@@ -732,7 +733,8 @@ export function generateDynamicNotifications(): DynamicNotification[] {
         isRead: skuRng() > 0.6,
         actionSuggestion: returnData.suggestedFixes[0] || "Review product listing and customer feedback",
         icon: "Undo2",
-        relatedView: "returns",
+        relatedView: "sku-deep-dive",
+        relatedTab: "returns",
       });
     }
 
@@ -754,7 +756,8 @@ export function generateDynamicNotifications(): DynamicNotification[] {
         isRead: false,
         actionSuggestion: `Emergency reorder ${inventory.reorderQty} units immediately`,
         icon: "AlertTriangle",
-        relatedView: "inventory",
+        relatedView: "sku-deep-dive",
+        relatedTab: "inventory",
       });
     }
 
@@ -776,7 +779,8 @@ export function generateDynamicNotifications(): DynamicNotification[] {
         isRead: skuRng() > 0.5,
         actionSuggestion: "Consider markdown strategy or cross-store transfer",
         icon: "Package",
-        relatedView: "inventory",
+        relatedView: "sku-deep-dive",
+        relatedTab: "inventory",
       });
     }
 
@@ -798,7 +802,8 @@ export function generateDynamicNotifications(): DynamicNotification[] {
         isRead: skuRng() > 0.5,
         actionSuggestion: "Pre-position stock and prepare for demand surge",
         icon: "Zap",
-        relatedView: "signals",
+        relatedView: "sku-deep-dive",
+        relatedTab: "signals",
       });
     }
   });

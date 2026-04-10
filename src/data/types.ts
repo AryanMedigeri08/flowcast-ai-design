@@ -249,6 +249,7 @@ export interface DynamicNotification {
   actionSuggestion: string;
   icon: string;                // lucide icon name
   relatedView: DashboardView;  // which view to navigate to
+  relatedTab?: SKUTab;         // optional tab for sku-deep-dive
 }
 
 export interface NotificationSummary {
@@ -340,10 +341,14 @@ export interface DemandMigrationGraph {
 export type DashboardView =
   | "executive"
   | "sku-deep-dive"
+  | "catalog-intelligence";
+
+export type SKUTab =
+  | "overview"
   | "demand"
   | "signals"
   | "returns"
   | "inventory"
   | "simulation"
-  | "explainability"
-  | "catalog-intelligence";
+  | "explainability";
+

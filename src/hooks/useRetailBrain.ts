@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
-import type { DashboardView, SimulationParams, DynamicNotification } from "@/data/types";
+import type { DashboardView, SimulationParams, DynamicNotification, SKUTab } from "@/data/types";
 import { skuCatalog, brands } from "@/data/brands";
 import {
   generateDemandForecast,
@@ -31,6 +31,7 @@ const defaultSimParams: SimulationParams = {
 
 export function useRetailBrain() {
   const [activeView, setActiveView] = useState<DashboardView>("executive");
+  const [activeTab, setActiveTab] = useState<SKUTab>("overview");
   const [selectedSKU, setSelectedSKU] = useState(skuCatalog[0].id);
   const [selectedBrand, setSelectedBrand] = useState<string>("all");
   const [simParams, setSimParams] = useState<SimulationParams>(defaultSimParams);
@@ -61,9 +62,10 @@ export function useRetailBrain() {
   const notificationSummary = useMemo(() => getNotificationSummary(notifications), [notifications]);
   const migrationGraph = useMemo(() => generateMigrationGraph(), []);
 
-  const selectSKUAndNavigate = useCallback((skuId: string) => {
+  const selectSKUAndNavigate = useCallback((skuId: string, tab?: SKUTab) => {
     setSelectedSKU(skuId);
     setActiveView("sku-deep-dive");
+    if (tab) setActiveTab(tab);
   }, []);
 
   const toggleSidebar = useCallback(() => {
@@ -88,6 +90,7 @@ export function useRetailBrain() {
     markNotificationRead(notif.id);
     setSelectedSKU(notif.skuId);
     setActiveView(notif.relatedView);
+    if (notif.relatedTab) setActiveTab(notif.relatedTab);
     setShowNotifications(false);
   }, [markNotificationRead]);
 
@@ -95,6 +98,8 @@ export function useRetailBrain() {
     // State
     activeView,
     setActiveView,
+    activeTab,
+    setActiveTab,
     selectedSKU,
     setSelectedSKU,
     selectedBrand,
