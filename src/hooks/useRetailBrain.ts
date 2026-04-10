@@ -1,6 +1,10 @@
-import { useState, useMemo, useCallback } from "react";
-import type { DashboardView, SimulationParams, DynamicNotification, SKUTab } from "@/data/types";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import type { 
+  DashboardView, SimulationParams, DynamicNotification, SKUTab,
+  ForecastPoint, ReturnAnalysis, AnomalyEvent
+} from "@/data/types";
 import { skuCatalog, brands } from "@/data/brands";
+import { fetchForecast, fetchReturnRisk, fetchAnomalies } from "@/lib/backendService";
 import {
   generateDemandForecast,
   generateDemandDecomposition,
@@ -41,6 +45,93 @@ export function useRetailBrain() {
   const [notifications, setNotifications] = useState<DynamicNotification[]>(() => generateDynamicNotifications());
   const [showNotifications, setShowNotifications] = useState(false);
 
+  // --- Backend ML State ---
+  const [mlForecast, setMlForecast] = useState<ForecastPoint[] | null>(null);
+  const [mlReturnRisk, setMlReturnRisk] = useState<ReturnAnalysis | null>(null);
+  const [mlAnomalies, setMlAnomalies] = useState<AnomalyEvent[] | null>(null);
+  const [isMlLoading, setIsMlLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchMlData = async () => {
+      setIsMlLoading(true);
+      const currentSku = skuCatalog.find(s => s.id === selectedSKU);
+      if (!currentSku) { setIsMlLoading(false); return; }
+
+      // Derive SKU-specific model parameters from catalog attributes
+      const baseDemand = Math.max(8, Math.round(200 - currentSku.price * 0.08));
+      const trend = currentSku.seasonalPeak.length > 0 ? 0.6 : 0.3;
+
+      // 1. Fetch Actual Forecast (SKU-aware)
+      const forecastRes = await fetchForecast(selectedSKU, baseDemand, trend, 14);
+      if (forecastRes) {
+        const mapped: ForecastPoint[] = forecastRes.predictions.map((p: any, i: number) => {
+          const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+          return {
+            day: days[(i + 1) % 7],
+            date: `Apr ${10 + i}`,
+            predicted: Math.round(p.predicted),
+            lower: Math.round(p.lower),
+            upper: Math.round(p.upper),
+            actual: p.actual != null ? Math.round(p.actual) : undefined,
+            mlData: forecastRes.model_metrics
+              ? { r2: forecastRes.model_metrics.r2, equation: `RF(n=120, depth=8)` }
+              : undefined,
+            mlMetadata: { model: forecastRes.model_type }
+          };
+        });
+        setMlForecast(mapped);
+
+        // 3. Fetch Anomalies using the forecast actuals as demand data
+        const demandValues = mapped
+          .filter(f => f.actual != null)
+          .map(f => f.actual as number);
+        if (demandValues.length > 0) {
+          const anomalyRes = await fetchAnomalies(selectedSKU, demandValues, baseDemand);
+          if (anomalyRes && anomalyRes.anomalies.length > 0) {
+            const mappedAnomalies: AnomalyEvent[] = anomalyRes.anomalies.map((a: any) => ({
+              id: `${selectedSKU}-ml-${a.id}`,
+              day: a.day,
+              type: a.type as "spike" | "drop",
+              predicted: a.predicted,
+              actual: a.actual,
+              deviation: a.deviation,
+              severity: a.severity as "critical" | "warning" | "info",
+            }));
+            setMlAnomalies(mappedAnomalies);
+          } else {
+            setMlAnomalies(null);
+          }
+        }
+      } else {
+        setMlForecast(null);
+        setMlAnomalies(null);
+      }
+
+      // 2. Fetch Actual Return Risk (catalog-calibrated)
+      const returnRes = await fetchReturnRisk(
+        selectedSKU, 
+        currentSku.price, 
+        currentSku.category, 
+        currentSku.returnRiskBase
+      );
+      if (returnRes) {
+        setMlReturnRisk(() => ({
+          ...generateReturnAnalysis(selectedSKU),
+          riskScore: returnRes.risk_analysis.risk_score,
+          riskLabel: returnRes.risk_analysis.risk_label,
+          mlMetadata: { model: returnRes.model_type }
+        }));
+      } else {
+        setMlReturnRisk(null);
+      }
+
+      setIsMlLoading(false);
+    };
+
+    fetchMlData();
+  }, [selectedSKU]);
+
+
   // Filtered SKUs by brand
   const filteredSKUs = useMemo(() => {
     if (selectedBrand === "all") return skuCatalog;
@@ -48,12 +139,12 @@ export function useRetailBrain() {
   }, [selectedBrand]);
 
   // All module data for selected SKU
-  const forecast = useMemo(() => generateDemandForecast(selectedSKU), [selectedSKU]);
+  const forecast = useMemo(() => mlForecast || generateDemandForecast(selectedSKU), [selectedSKU, mlForecast]);
   const decomposition = useMemo(() => generateDemandDecomposition(selectedSKU), [selectedSKU]);
-  const anomalies = useMemo(() => generateAnomalies(selectedSKU), [selectedSKU]);
+  const anomalies = useMemo(() => mlAnomalies || generateAnomalies(selectedSKU), [selectedSKU, mlAnomalies]);
   const signalFusion = useMemo(() => generateSignalFusion(selectedSKU), [selectedSKU]);
   const intentAcceleration = useMemo(() => generateIntentAcceleration(selectedSKU), [selectedSKU]);
-  const returnAnalysis = useMemo(() => generateReturnAnalysis(selectedSKU), [selectedSKU]);
+  const returnAnalysis = useMemo(() => mlReturnRisk || generateReturnAnalysis(selectedSKU), [selectedSKU, mlReturnRisk]);
   const inventoryDecision = useMemo(() => generateInventoryDecision(selectedSKU), [selectedSKU]);
   const simulation = useMemo(() => simulateWhatIf(selectedSKU, simParams), [selectedSKU, simParams]);
   const explanation = useMemo(() => generateExplanation(selectedSKU), [selectedSKU]);
@@ -114,6 +205,7 @@ export function useRetailBrain() {
     toggleSidebar,
     showNotifications,
     setShowNotifications,
+    isMlLoading,
 
     // Computed
     filteredSKUs,

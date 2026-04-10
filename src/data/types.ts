@@ -37,6 +37,9 @@ export interface ForecastPoint {
     r2: number;
     equation: string;
   };
+  mlMetadata?: {
+    model: string;
+  };
 }
 
 export interface DemandDecomposition {
@@ -113,6 +116,9 @@ export interface ReturnAnalysis {
   returnExplanation: string;      // Natural language explanation
   categoryAvgReturn: number;      // Category average return rate
   historicalTrend: ReturnTrendPoint[];  // 6-month return trend
+  mlMetadata?: {
+    model: string;
+  };
 }
 
 export interface ReturnRiskFactor {
