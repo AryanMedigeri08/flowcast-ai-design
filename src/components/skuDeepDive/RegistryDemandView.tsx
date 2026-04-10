@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { RetailBrainState } from "@/hooks/useRetailBrain";
 import { getSKU, getBrand } from "@/data/brands";
 import {
@@ -11,24 +11,69 @@ import {
   CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
 } from "recharts";
 
+// ─── Inject animation styles once ──────────────────────────
+let stylesInjected = false;
+function ensureRegistryAnimStyles() {
+  if (stylesInjected) return;
+  stylesInjected = true;
+  const css = `
+    @keyframes regFadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes regSlideIn {
+      from { opacity: 0; transform: translateX(24px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes regPillPop {
+      0%   { opacity: 0; transform: scale(0.7); }
+      60%  { transform: scale(1.05); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    @keyframes regBarSweep {
+      from { width: 0; }
+    }
+    @keyframes regRingPulse {
+      0%, 100% { filter: drop-shadow(0 0 0px transparent); }
+      50%      { filter: drop-shadow(0 0 8px hsl(265 60% 62% / 0.25)); }
+    }
+    @keyframes regCountUp {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes regGapFill {
+      from { width: 0%; }
+    }
+    .reg-fade-up { animation: regFadeUp 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+    .reg-slide-in { animation: regSlideIn 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+    .reg-pill-pop { animation: regPillPop 0.35s cubic-bezier(0.16,1,0.3,1) both; }
+    .reg-ring-pulse { animation: regRingPulse 3s ease-in-out infinite; }
+  `;
+  const el = document.createElement("style");
+  el.textContent = css;
+  document.head.appendChild(el);
+}
+
 // ─── Animated Counter ──────────────────────────────────────
-const AnimatedNumber = ({ value, prefix = "", suffix = "", decimals = 0 }: {
-  value: number; prefix?: string; suffix?: string; decimals?: number;
+const AnimatedNumber = ({ value, prefix = "", suffix = "", decimals = 0, delay = 0 }: {
+  value: number; prefix?: string; suffix?: string; decimals?: number; delay?: number;
 }) => {
   const [display, setDisplay] = useState(0);
   useEffect(() => {
     let frame: number;
-    const start = performance.now();
-    const duration = 1200;
-    const animate = (now: number) => {
-      const t = Math.min((now - start) / duration, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(eased * value);
-      if (t < 1) frame = requestAnimationFrame(animate);
-    };
-    frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
-  }, [value]);
+    const timeout = setTimeout(() => {
+      const start = performance.now();
+      const duration = 1200;
+      const animate = (now: number) => {
+        const t = Math.min((now - start) / duration, 1);
+        const eased = 1 - Math.pow(1 - t, 3);
+        setDisplay(eased * value);
+        if (t < 1) frame = requestAnimationFrame(animate);
+      };
+      frame = requestAnimationFrame(animate);
+    }, delay);
+    return () => { clearTimeout(timeout); cancelAnimationFrame(frame); };
+  }, [value, delay]);
   return <>{prefix}{display.toFixed(decimals)}{suffix}</>;
 };
 
@@ -57,13 +102,12 @@ const DemandSplitRing = ({ registryShare }: { registryShare: number }) => {
   const organicLength = (1 - animatedShare) * circumference;
 
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="transform -rotate-90">
-      {/* Organic (blue) */}
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}
+      className="transform -rotate-90 reg-ring-pulse">
       <circle cx={center} cy={center} r={radius} fill="none"
         stroke="hsl(217 91% 60%)" strokeWidth={strokeWidth} strokeOpacity={0.25}
         strokeDasharray={`${organicLength} ${circumference}`} strokeDashoffset={0}
         strokeLinecap="round" style={{ transition: "all 0.8s cubic-bezier(0.16,1,0.3,1)" }} />
-      {/* Registry (purple) */}
       <circle cx={center} cy={center} r={radius} fill="none"
         stroke="hsl(265 60% 62%)" strokeWidth={strokeWidth} strokeOpacity={0.7}
         strokeDasharray={`${registryLength} ${circumference}`} strokeDashoffset={-organicLength}
@@ -132,51 +176,62 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
   const brand = getBrand(sku.brand);
   const reg = brain.registryDemand;
 
+  // Inject animation CSS
+  useEffect(() => { ensureRegistryAnimStyles(); }, []);
+
+  // Mount key for re-triggering animations on SKU change
+  const [mountKey, setMountKey] = useState(0);
+  useEffect(() => { setMountKey(k => k + 1); }, [brain.selectedSKU]);
+
   const daysColor = (days: number) =>
     days < 14 ? "text-destructive" : days <= 30 ? "text-amber-400" : "text-muted-foreground/70";
 
   const daysUrgency = (days: number) =>
     days < 14 ? "Urgent" : days <= 30 ? "Soon" : "";
 
-  // Event type breakdown for summary
   const eventBreakdown = useMemo(() => {
     const counts: Record<string, number> = {};
     reg.events.forEach(e => { counts[e.eventType] = (counts[e.eventType] || 0) + 1; });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [reg.events]);
 
-  // Total organic for ratio
   const totalOrganic = reg.weeklyWave.reduce((s, w) => s + w.organicUnits, 0);
   const totalAll = totalOrganic + reg.totalProjectedRegistryUnits;
 
-  // Chart data with total line
-  const chartData = reg.weeklyWave.map(w => ({
-    ...w,
-    cumulativeRegistry: 0, // placeholder
-  }));
-
-  // Running cumulative
+  const chartData = reg.weeklyWave.map(w => ({ ...w, cumulativeRegistry: 0 }));
   let cumReg = 0;
-  chartData.forEach(w => {
-    cumReg += w.registryUnits;
-    w.cumulativeRegistry = cumReg;
-  });
+  chartData.forEach(w => { cumReg += w.registryUnits; w.cumulativeRegistry = cumReg; });
+
+  // Event mix bar animation
+  const [mixProgress, setMixProgress] = useState(0);
+  useEffect(() => {
+    setMixProgress(0);
+    const t = setTimeout(() => setMixProgress(1), 600);
+    return () => clearTimeout(t);
+  }, [mountKey]);
+
+  // Inventory gap bar animation
+  const [gapProgress, setGapProgress] = useState(0);
+  useEffect(() => {
+    setGapProgress(0);
+    const t = setTimeout(() => setGapProgress(1), 800);
+    return () => clearTimeout(t);
+  }, [mountKey]);
 
   return (
-    <div className="space-y-6 animate-slide-up">
+    <div className="space-y-6" key={mountKey}>
       {/* ─── Hero Header ─── */}
-      <div className="relative overflow-hidden rounded-2xl bg-card border border-border/60 p-6">
+      <div className="relative overflow-hidden rounded-2xl bg-card border border-border/60 p-6 reg-fade-up">
         <div className="absolute top-0 right-0 w-64 h-64 bg-accent/[0.03] rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-primary/[0.02] rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative flex items-start justify-between">
           <div className="flex items-start gap-5">
-            {/* Demand Split Ring */}
             <div className="relative shrink-0">
               <DemandSplitRing registryShare={reg.registryShareOfDemand} />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <p className="text-lg font-light font-mono-data text-foreground leading-none">
-                  {(reg.registryShareOfDemand * 100).toFixed(0)}%
+                  <AnimatedNumber value={reg.registryShareOfDemand * 100} decimals={0} suffix="%" />
                 </p>
                 <p className="text-[7px] text-muted-foreground/50 font-semibold tracking-wider uppercase mt-0.5">REGISTRY</p>
               </div>
@@ -186,13 +241,17 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
                 Registry <span className="font-semibold">Demand Intelligence</span>
               </h2>
               <p className="text-sm text-muted-foreground mt-1">Structured future demand from active gift registries</p>
-              {/* Event type pills */}
+              {/* Event type pills — staggered pop-in */}
               <div className="flex items-center gap-2 mt-3">
-                {eventBreakdown.map(([type, count]) => {
+                {eventBreakdown.map(([type, count], idx) => {
                   const cfg = eventConfig[type] || eventConfig.birthday;
                   const Icon = cfg.icon;
                   return (
-                    <span key={type} className={`inline-flex items-center gap-1 text-[9px] font-semibold px-2 py-1 rounded-lg ${cfg.bg} ${cfg.text} ${cfg.border} border`}>
+                    <span
+                      key={type}
+                      className={`inline-flex items-center gap-1 text-[9px] font-semibold px-2 py-1 rounded-lg ${cfg.bg} ${cfg.text} ${cfg.border} border reg-pill-pop`}
+                      style={{ animationDelay: `${300 + idx * 100}ms` }}
+                    >
                       <Icon className="w-3 h-3" />
                       {count} {cfg.label}{count > 1 ? "s" : ""}
                     </span>
@@ -202,9 +261,9 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
             </div>
           </div>
 
-          <div className="text-right shrink-0">
+          <div className="text-right shrink-0 reg-fade-up" style={{ animationDelay: "200ms" }}>
             <p className="text-5xl font-extralight font-mono-data tracking-tighter text-foreground leading-none">
-              <AnimatedNumber value={reg.activeRegistries} />
+              <AnimatedNumber value={reg.activeRegistries} delay={200} />
             </p>
             <p className="label-micro text-[8px] mt-2">ACTIVE REGISTRIES</p>
           </div>
@@ -212,7 +271,7 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
       </div>
 
       {/* ─── AI Insight Card ─── */}
-      <div className="relative overflow-hidden p-5 rounded-2xl bg-accent/[0.03] border border-accent/15">
+      <div className="relative overflow-hidden p-5 rounded-2xl bg-accent/[0.03] border border-accent/15 reg-fade-up" style={{ animationDelay: "100ms" }}>
         <div className="absolute top-3 right-4 opacity-[0.05]">
           <Zap className="w-16 h-16" />
         </div>
@@ -227,38 +286,45 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
         </div>
       </div>
 
-      {/* ─── KPI Strip: 4 tiles with icons ─── */}
+      {/* ─── KPI Strip — staggered entrance ─── */}
       <div className="grid grid-cols-4 gap-px bg-border/20 rounded-2xl overflow-hidden">
         {[
           {
-            label: "REVENUE AT STAKE", value: `$${reg.registryRevenueAtStake.toLocaleString()}`,
+            label: "REVENUE AT STAKE", numValue: reg.registryRevenueAtStake,
+            value: `$${reg.registryRevenueAtStake.toLocaleString()}`,
             icon: TrendingUp, color: "text-foreground",
             sub: `${reg.totalProjectedRegistryUnits} units × $${sku.price.toLocaleString()}`,
           },
           {
-            label: "DEMAND SHARE", value: `${(reg.registryShareOfDemand * 100).toFixed(0)}%`,
+            label: "DEMAND SHARE", numValue: reg.registryShareOfDemand * 100,
+            value: `${(reg.registryShareOfDemand * 100).toFixed(0)}%`,
             icon: BarChart3, color: "text-purple-400",
             sub: `${reg.totalProjectedRegistryUnits} of ${totalAll} total units`,
           },
           {
-            label: "PEAK WEEK", value: reg.peakRegistryWeek,
+            label: "PEAK WEEK", numValue: 0,
+            value: reg.peakRegistryWeek,
             icon: Calendar, color: "text-amber-400",
             sub: `${reg.peakRegistryUnits} registry units`,
           },
           {
-            label: "INVENTORY GAP",
+            label: "INVENTORY GAP", numValue: reg.inventoryGap,
             value: reg.inventoryGap > 0 ? `${reg.inventoryGap} units` : "No Gap",
             icon: Package,
             color: reg.inventoryGap > 0 ? "text-destructive" : "text-emerald-400",
             sub: reg.inventoryGap > 0 ? "Stock shortfall projected" : "Sufficient stock available",
           },
-        ].map((tile) => (
-          <div key={tile.label} className="bg-card p-4 group hover:bg-secondary/20 transition-colors">
+        ].map((tile, idx) => (
+          <div
+            key={tile.label}
+            className="bg-card p-4 group hover:bg-secondary/20 transition-all duration-300 reg-fade-up"
+            style={{ animationDelay: `${200 + idx * 80}ms` }}
+          >
             <div className="flex items-center justify-between mb-2">
               <p className="label-micro text-[8px]">{tile.label}</p>
-              <tile.icon className="w-3.5 h-3.5 text-muted-foreground/30" />
+              <tile.icon className="w-3.5 h-3.5 text-muted-foreground/30 group-hover:text-muted-foreground/50 transition-colors" />
             </div>
-            <p className={`text-2xl font-light font-mono-data tracking-tight ${tile.color}`}>
+            <p className={`text-2xl font-light font-mono-data tracking-tight ${tile.color} transition-colors`}>
               {tile.value}
             </p>
             <p className="text-[10px] text-muted-foreground/50 mt-1 font-mono-data">{tile.sub}</p>
@@ -267,7 +333,7 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
       </div>
 
       {/* ─── Weekly Wave Chart ─── */}
-      <div className="p-6 rounded-2xl bg-card border border-border/60 surface-glow">
+      <div className="p-6 rounded-2xl bg-card border border-border/60 surface-glow reg-fade-up" style={{ animationDelay: "400ms" }}>
         <div className="flex items-center justify-between mb-5">
           <div>
             <p className="text-sm font-semibold text-foreground">Weekly Demand Wave</p>
@@ -314,14 +380,16 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
               <Tooltip content={<WaveTooltip />} />
 
               <Bar dataKey="organicUnits" name="Organic" stackId="demand"
-                fill="url(#organicGradient)" radius={[0, 0, 0, 0]} />
+                fill="url(#organicGradient)" radius={[0, 0, 0, 0]}
+                animationDuration={800} animationEasing="ease-out" />
               <Bar dataKey="registryUnits" name="Registry" stackId="demand"
-                fill="url(#registryGradient)" radius={[4, 4, 0, 0]} />
+                fill="url(#registryGradient)" radius={[4, 4, 0, 0]}
+                animationDuration={800} animationBegin={200} animationEasing="ease-out" />
 
-              {/* Total line on top */}
               <Line type="monotone" dataKey="totalUnits" name="Total"
                 stroke="hsl(var(--foreground))" strokeWidth={1.5} strokeOpacity={0.3}
-                dot={false} strokeDasharray="4 4" />
+                dot={false} strokeDasharray="4 4"
+                animationDuration={1000} animationBegin={400} />
 
               <ReferenceLine x={reg.peakRegistryWeek}
                 stroke="hsl(38 92% 50%)" strokeDasharray="6 4" strokeWidth={1.5}
@@ -332,8 +400,8 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
         </div>
       </div>
 
-      {/* ─── Event Timeline ─── */}
-      <div className="rounded-2xl p-5 bg-card border border-border/60">
+      {/* ─── Event Timeline — staggered card slide-in ─── */}
+      <div className="rounded-2xl p-5 bg-card border border-border/60 reg-fade-up" style={{ animationDelay: "500ms" }}>
         <div className="flex items-center gap-2 mb-5">
           <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center">
             <Gift className="w-3.5 h-3.5 text-accent" />
@@ -355,9 +423,12 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
             return (
               <div
                 key={evt.registryId}
-                className={`relative min-w-[220px] p-4 rounded-2xl shrink-0 border transition-all hover:scale-[1.02] hover:shadow-lg
+                className={`relative min-w-[220px] p-4 rounded-2xl shrink-0 border transition-all duration-300
+                  hover:scale-[1.03] hover:shadow-xl hover:-translate-y-1
                   ${cfg.bg} ${cfg.border}
-                  ${isUrgent ? "ring-1 ring-destructive/20" : ""}`}
+                  ${isUrgent ? "ring-1 ring-destructive/20" : ""}
+                  reg-slide-in`}
+                style={{ animationDelay: `${600 + idx * 120}ms` }}
               >
                 {/* Ambient glow */}
                 <div className={`absolute top-0 right-0 w-20 h-20 rounded-full blur-2xl pointer-events-none ${cfg.glow}`} />
@@ -369,7 +440,9 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
                     {cfg.label}
                   </span>
                   {(isUrgent || isSoon) && (
-                    <span className={`text-[8px] font-semibold px-1.5 py-0.5 rounded ${isUrgent ? "bg-destructive/15 text-destructive" : "bg-amber-500/15 text-amber-400"}`}>
+                    <span className={`text-[8px] font-semibold px-1.5 py-0.5 rounded ${isUrgent ? "bg-destructive/15 text-destructive" : "bg-amber-500/15 text-amber-400"}`}
+                      style={isUrgent ? { animation: "healthPulse 2s ease-in-out infinite" } : undefined}
+                    >
                       {daysUrgency(evt.daysUntilEvent)}
                     </span>
                   )}
@@ -382,7 +455,7 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
                   <span className="text-[11px] font-mono-data font-medium">{evt.daysUntilEvent} days away</span>
                 </div>
 
-                {/* Divider */}
+                {/* Divider with subtle animation */}
                 <div className="border-t border-border/20 my-3" />
 
                 {/* Stats grid */}
@@ -422,10 +495,10 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
       {/* ─── Bottom panels: Inventory + Demand Composition ─── */}
       <div className="grid grid-cols-3 gap-6">
         {/* Inventory Gap Alert / Status */}
-        <div className={`col-span-2 rounded-2xl p-5 border ${reg.inventoryGap > 0
+        <div className={`col-span-2 rounded-2xl p-5 border reg-fade-up ${reg.inventoryGap > 0
           ? "bg-destructive/[0.03] border-destructive/15"
           : "bg-emerald-500/[0.03] border-emerald-500/15"
-        }`}>
+        }`} style={{ animationDelay: "700ms" }}>
           <div className="flex items-start gap-4">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
               reg.inventoryGap > 0 ? "bg-destructive/10" : "bg-emerald-500/10"
@@ -447,7 +520,7 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
                     Registry demand will exhaust current stock — <span className="text-destructive font-semibold font-mono-data">{reg.inventoryGap} additional units</span> needed
                     to fulfill projected registry purchases without impacting organic demand.
                   </p>
-                  {/* Visual gap bar */}
+                  {/* Animated gap bar */}
                   <div className="mt-4 flex items-center gap-3">
                     <div className="flex-1">
                       <div className="flex justify-between text-[9px] text-muted-foreground/40 mb-1">
@@ -456,9 +529,15 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
                       </div>
                       <div className="relative h-3 rounded-full bg-secondary/20 overflow-hidden">
                         <div className="absolute inset-y-0 left-0 bg-emerald-400/30 rounded-full"
-                          style={{ width: `${Math.min(100, (brain.inventoryDecision.currentStock / (brain.inventoryDecision.currentStock + reg.inventoryGap)) * 100)}%` }} />
+                          style={{
+                            width: `${gapProgress * Math.min(100, (brain.inventoryDecision.currentStock / (brain.inventoryDecision.currentStock + reg.inventoryGap)) * 100)}%`,
+                            transition: "width 1s cubic-bezier(0.16,1,0.3,1)",
+                          }} />
                         <div className="absolute inset-y-0 right-0 bg-destructive/20 rounded-r-full"
-                          style={{ width: `${Math.min(100, (reg.inventoryGap / (brain.inventoryDecision.currentStock + reg.inventoryGap)) * 100)}%` }} />
+                          style={{
+                            width: `${gapProgress * Math.min(100, (reg.inventoryGap / (brain.inventoryDecision.currentStock + reg.inventoryGap)) * 100)}%`,
+                            transition: "width 1s cubic-bezier(0.16,1,0.3,1) 0.3s",
+                          }} />
                       </div>
                       <div className="flex justify-between text-[9px] font-mono-data mt-1">
                         <span className="text-emerald-400">{brain.inventoryDecision.currentStock} units</span>
@@ -477,8 +556,8 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
           </div>
         </div>
 
-        {/* Event Type Breakdown */}
-        <div className="rounded-2xl p-5 bg-card border border-border/60">
+        {/* Event Type Breakdown — animated bars */}
+        <div className="rounded-2xl p-5 bg-card border border-border/60 reg-fade-up" style={{ animationDelay: "800ms" }}>
           <div className="flex items-center gap-2 mb-4">
             <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
               <Heart className="w-3.5 h-3.5 text-primary" />
@@ -486,13 +565,18 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
             <p className="text-sm font-semibold text-foreground">Event Mix</p>
           </div>
           <div className="space-y-3">
-            {eventBreakdown.map(([type, count]) => {
+            {eventBreakdown.map(([type, count], idx) => {
               const cfg = eventConfig[type] || eventConfig.birthday;
               const Icon = cfg.icon;
               const evtsOfType = reg.events.filter(e => e.eventType === type);
               const unitsOfType = evtsOfType.reduce((s, e) => s + e.projectedUnits, 0);
               const pctOfTotal = reg.totalProjectedRegistryUnits > 0
                 ? (unitsOfType / reg.totalProjectedRegistryUnits * 100) : 0;
+
+              const barColor = type === "wedding" ? "hsl(38 92% 50%)"
+                : type === "baby" ? "hsl(265 60% 62%)"
+                : type === "housewarming" ? "hsl(152 69% 45%)"
+                : "hsl(199 89% 48%)";
 
               return (
                 <div key={type} className="space-y-1.5">
@@ -504,14 +588,12 @@ const RegistryDemandView = ({ brain }: { brain: RetailBrainState }) => {
                     <span className="text-[11px] font-mono-data text-muted-foreground">{unitsOfType} units</span>
                   </div>
                   <div className="relative h-1.5 rounded-full bg-secondary/20 overflow-hidden">
-                    <div className={`absolute inset-y-0 left-0 rounded-full transition-all duration-700`}
+                    <div className="absolute inset-y-0 left-0 rounded-full"
                       style={{
-                        width: `${pctOfTotal}%`,
-                        background: type === "wedding" ? "hsl(38 92% 50%)"
-                          : type === "baby" ? "hsl(265 60% 62%)"
-                          : type === "housewarming" ? "hsl(152 69% 45%)"
-                          : "hsl(199 89% 48%)",
+                        width: `${pctOfTotal * mixProgress}%`,
+                        background: barColor,
                         opacity: 0.6,
+                        transition: `width 0.7s cubic-bezier(0.16,1,0.3,1) ${idx * 150}ms`,
                       }} />
                   </div>
                 </div>

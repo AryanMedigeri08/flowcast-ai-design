@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { RetailBrainState } from "@/hooks/useRetailBrain";
 import { getSKU, getBrand } from "@/data/brands";
 import {
@@ -191,6 +191,72 @@ const Microcopy = ({ text }: { text: string }) => (
   </div>
 );
 
+// ─── Dual Range Slider ──────────────────────────────────────
+const DualRangeSlider = ({
+  min, max, low, high, minGap, onChange,
+}: {
+  min: number; max: number; low: number; high: number;
+  minGap: number;
+  onChange: (low: number, high: number) => void;
+}) => {
+  const trackRef = useRef<HTMLDivElement>(null);
+
+  const pxToVal = useCallback((clientX: number) => {
+    const rect = trackRef.current!.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return min + pct * (max - min);
+  }, [min, max]);
+
+  const handlePointerDown = useCallback((thumb: "low" | "high") => (e: React.PointerEvent) => {
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+
+    const onMove = (ev: PointerEvent) => {
+      const raw = pxToVal(ev.clientX);
+      if (thumb === "low") {
+        const clamped = Math.min(raw, high - minGap);
+        onChange(Math.max(min, parseFloat(clamped.toFixed(2))), high);
+      } else {
+        const clamped = Math.max(raw, low + minGap);
+        onChange(low, Math.min(max, parseFloat(clamped.toFixed(2))));
+      }
+    };
+    const onUp = () => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+    };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+  }, [pxToVal, low, high, min, max, minGap, onChange]);
+
+  const lowPct = ((low - min) / (max - min)) * 100;
+  const highPct = ((high - min) / (max - min)) * 100;
+
+  return (
+    <div className="relative h-8 select-none touch-none" ref={trackRef}>
+      {/* Track */}
+      <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-1.5 rounded-full bg-border/30" />
+      {/* Filled range */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-emerald-400/40"
+        style={{ left: `${lowPct}%`, width: `${highPct - lowPct}%` }}
+      />
+      {/* Low thumb */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-[18px] h-[18px] rounded-full bg-card border-2 border-primary shadow-md cursor-grab active:cursor-grabbing hover:scale-110 transition-transform z-10"
+        style={{ left: `${lowPct}%` }}
+        onPointerDown={handlePointerDown("low")}
+      />
+      {/* High thumb */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-[18px] h-[18px] rounded-full bg-card border-2 border-primary shadow-md cursor-grab active:cursor-grabbing hover:scale-110 transition-transform z-10"
+        style={{ left: `${highPct}%` }}
+        onPointerDown={handlePointerDown("high")}
+      />
+    </div>
+  );
+};
+
 // ─── Main View Component ────────────────────────────────────
 const PriceElasticityView = ({ brain }: { brain: RetailBrainState }) => {
   const sku = getSKU(brain.selectedSKU);
@@ -199,13 +265,48 @@ const PriceElasticityView = ({ brain }: { brain: RetailBrainState }) => {
 
   // ─── State: Optimization mode toggle ───
   const [optimizationMode, setOptimizationMode] = useState<"revenue" | "profit">("revenue");
-  const [costPerUnit, setCostPerUnit] = useState(() => Math.round(sku.price * 0.4)); // default 40% of retail
+  const [costPerUnit, setCostPerUnit] = useState(() => Math.round(sku.price * 0.4));
   const [hoveredBarIdx, setHoveredBarIdx] = useState<number | null>(null);
+
+  // ─── PART A: Sweet-spot slider state ───
+  const [sweetSpotLow, setSweetSpotLow] = useState(elasticity.markdownSweetSpot.low);
+  const [sweetSpotHigh, setSweetSpotHigh] = useState(elasticity.markdownSweetSpot.high);
+  useEffect(() => {
+    setSweetSpotLow(elasticity.markdownSweetSpot.low);
+    setSweetSpotHigh(elasticity.markdownSweetSpot.high);
+  }, [elasticity.markdownSweetSpot.low, elasticity.markdownSweetSpot.high]);
+
+  const handleSweetSpotChange = useCallback((lo: number, hi: number) => {
+    setSweetSpotLow(lo);
+    setSweetSpotHigh(hi);
+  }, []);
 
   // Update cost when SKU changes
   useEffect(() => {
     setCostPerUnit(Math.round(sku.price * 0.4));
   }, [sku.price]);
+
+  // ─── PART B: Curve morph state ───
+  const [morphT, setMorphT] = useState(0); // 0 = revenue, 1 = profit
+  const morphTarget = optimizationMode === "profit" ? 1 : 0;
+  const rafRef = useRef<number>(0);
+  useEffect(() => {
+    const start = performance.now();
+    const from = morphT;
+    const to = morphTarget;
+    const DURATION = 600;
+    if (from === to) return;
+    const tick = (now: number) => {
+      const elapsed = now - start;
+      const rawT = Math.min(elapsed / DURATION, 1);
+      const eased = 1 - Math.pow(1 - rawT, 3); // cubic-bezier approximation
+      const current = from + (to - from) * eased;
+      setMorphT(current);
+      if (rawT < 1) rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [morphTarget]);
 
   const labelColor: Record<string, string> = {
     "Highly Elastic": "text-destructive",
@@ -221,18 +322,18 @@ const PriceElasticityView = ({ brain }: { brain: RetailBrainState }) => {
     "Inelastic": "bg-emerald-500/10",
   };
 
-  // Sweet spot calculations
+  // Sweet spot calculations — reactive to slider
   const rangeMin = sku.price * 0.7;
   const rangeMax = sku.price * 1.3;
   const rangeSpan = rangeMax - rangeMin;
-  const sweetSpotLeftPct = ((elasticity.markdownSweetSpot.low - rangeMin) / rangeSpan) * 100;
-  const sweetSpotWidthPct = ((elasticity.markdownSweetSpot.high - elasticity.markdownSweetSpot.low) / rangeSpan) * 100;
+  const sweetSpotLeftPct = ((sweetSpotLow - rangeMin) / rangeSpan) * 100;
+  const sweetSpotWidthPct = ((sweetSpotHigh - sweetSpotLow) / rangeSpan) * 100;
   const currentPricePct = ((sku.price - rangeMin) / rangeSpan) * 100;
   const optimumPricePct = ((elasticity.revenueMaxPrice - rangeMin) / rangeSpan) * 100;
 
-  // Discount range — ensure ASCENDING order (low% to high%)
-  const discountLow = ((1 - elasticity.markdownSweetSpot.high / sku.price) * 100);
-  const discountHigh = ((1 - elasticity.markdownSweetSpot.low / sku.price) * 100);
+  // Discount range — reactive to slider
+  const discountLow = ((1 - sweetSpotHigh / sku.price) * 100);
+  const discountHigh = ((1 - sweetSpotLow / sku.price) * 100);
   const discountMin = Math.min(discountLow, discountHigh);
   const discountMax = Math.max(discountLow, discountHigh);
 
@@ -313,7 +414,22 @@ const PriceElasticityView = ({ brain }: { brain: RetailBrainState }) => {
     isProfitOptimal: pt.price === profitData.profitMaxPrice,
   }));
 
+  // ─── PART B: Morphed curve for bar chart ───
+  // Normalize profit to same scale as revenue for smooth visual morph
+  const maxRevenue = Math.max(...curveData.map(p => p.predictedRevenue));
+  const maxProfit = Math.max(...curveData.map(p => Math.abs(p.profit)));
+  const profitScale = maxProfit > 0 ? maxRevenue / maxProfit : 1;
 
+  const morphedCurveData = curveData.map(pt => {
+    const revenueY = pt.predictedRevenue;
+    const profitY = pt.profit * profitScale;
+    const morphedBarY = revenueY + (profitY - revenueY) * morphT;
+    return { ...pt, morphedRevenue: morphedBarY };
+  });
+
+  // Morphed optimal price marker
+  const morphedOptimalPrice = elasticity.revenueMaxPrice +
+    (profitData.profitMaxPrice - elasticity.revenueMaxPrice) * morphT;
 
   // Best performing revenue range
   const bestRange = useMemo(() => {
@@ -538,7 +654,7 @@ const PriceElasticityView = ({ brain }: { brain: RetailBrainState }) => {
         </div>
         <div style={{ height: 380 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={curveData} margin={{ top: 15, right: 40, left: 10, bottom: 25 }}>
+            <ComposedChart data={morphedCurveData} margin={{ top: 15, right: 40, left: 10, bottom: 25 }}>
               <defs>
                 <linearGradient id="confidenceGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="hsl(265 60% 62%)" stopOpacity={0.06} />
@@ -566,7 +682,7 @@ const PriceElasticityView = ({ brain }: { brain: RetailBrainState }) => {
                 tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
                 tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`}
                 axisLine={false} tickLine={false}
-                label={{ value: "Revenue ($)", angle: 90, position: "insideRight", offset: -5, style: { fill: "hsl(var(--muted-foreground))", fontSize: 11, fontWeight: 500 } }}
+                label={{ value: optimizationMode === "profit" ? "Profit ($)" : "Revenue ($)", angle: 90, position: "insideRight", offset: -5, style: { fill: "hsl(var(--muted-foreground))", fontSize: 11, fontWeight: 500 } }}
               />
               <Tooltip content={<ElasticityTooltip />} />
 
@@ -574,8 +690,8 @@ const PriceElasticityView = ({ brain }: { brain: RetailBrainState }) => {
               <Area yAxisId="units" dataKey="confidenceUpper" stroke="none" fill="url(#confidenceGradient)" type="monotone" />
               <Area yAxisId="units" dataKey="confidenceLower" stroke="none" fill="hsl(var(--card))" fillOpacity={1} type="monotone" />
 
-              {/* Revenue bars — thinner with gap */}
-              <Bar yAxisId="revenue" dataKey="predictedRevenue" fill="url(#revenueGradient)" radius={[4, 4, 0, 0]} barSize={18} />
+              {/* Revenue/Profit bars — morphed */}
+              <Bar yAxisId="revenue" dataKey="morphedRevenue" fill="url(#revenueGradient)" radius={[4, 4, 0, 0]} barSize={18} animationDuration={0} />
 
               {/* Demand line — smooth monotone curve */}
               <Line yAxisId="units" type="monotone" dataKey="predictedUnits"
@@ -594,16 +710,10 @@ const PriceElasticityView = ({ brain }: { brain: RetailBrainState }) => {
                 stroke="hsl(38 92% 50%)" strokeDasharray="8 5" strokeWidth={1.5}
                 label={{ value: "▾ Current", position: "top", fill: "hsl(38 92% 50%)", fontSize: 9, fontWeight: 600 }}
               />
-              <ReferenceLine yAxisId="units" x={elasticity.revenueMaxPrice}
+              <ReferenceLine yAxisId="units" x={morphedOptimalPrice}
                 stroke="hsl(152 69% 45%)" strokeDasharray="8 5" strokeWidth={1.5}
-                label={{ value: "▾ Optimum", position: "top", fill: "hsl(152 69% 45%)", fontSize: 9, fontWeight: 600 }}
+                label={{ value: optimizationMode === "profit" ? "▾ Profit Max" : "▾ Optimum", position: "top", fill: "hsl(152 69% 45%)", fontSize: 9, fontWeight: 600 }}
               />
-              {optimizationMode === "profit" && profitData.profitMaxPrice !== elasticity.revenueMaxPrice && (
-                <ReferenceLine yAxisId="units" x={profitData.profitMaxPrice}
-                  stroke="hsl(280 60% 55%)" strokeDasharray="5 3" strokeWidth={1.5}
-                  label={{ value: "▾ Profit Max", position: "top", fill: "hsl(280 60% 55%)", fontSize: 9, fontWeight: 600 }}
-                />
-              )}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -697,16 +807,29 @@ const PriceElasticityView = ({ brain }: { brain: RetailBrainState }) => {
             </div>
           </div>
 
-          {/* Sweet spot details — fixed ascending discount range */}
-          <div className="mt-4 grid grid-cols-3 gap-3">
+          {/* ─── Dual-handle sweet-spot slider ─── */}
+          <div className="mt-4 mb-2 px-1">
+            <p className="label-micro text-[8px] mb-2">ADJUST SWEET SPOT RANGE</p>
+            <DualRangeSlider
+              min={rangeMin}
+              max={rangeMax}
+              low={sweetSpotLow}
+              high={sweetSpotHigh}
+              minGap={5}
+              onChange={handleSweetSpotChange}
+            />
+          </div>
+
+          {/* Sweet spot details — reactive to slider */}
+          <div className="mt-2 grid grid-cols-3 gap-3">
             <div className="p-3 rounded-xl bg-secondary/10 border border-border/30 hover:bg-secondary/20 transition-colors">
               <p className="label-micro text-[8px] mb-1">SWEET SPOT LOW</p>
-              <p className="text-lg font-light font-mono-data text-emerald-400">${elasticity.markdownSweetSpot.low.toFixed(2)}</p>
+              <p className="text-lg font-light font-mono-data text-emerald-400">${sweetSpotLow.toFixed(2)}</p>
               <p className="text-[9px] text-muted-foreground/40 mt-0.5">Lower bound of optimal range</p>
             </div>
             <div className="p-3 rounded-xl bg-secondary/10 border border-border/30 hover:bg-secondary/20 transition-colors">
               <p className="label-micro text-[8px] mb-1">SWEET SPOT HIGH</p>
-              <p className="text-lg font-light font-mono-data text-emerald-400">${elasticity.markdownSweetSpot.high.toFixed(2)}</p>
+              <p className="text-lg font-light font-mono-data text-emerald-400">${sweetSpotHigh.toFixed(2)}</p>
               <p className="text-[9px] text-muted-foreground/40 mt-0.5">Upper bound of optimal range</p>
             </div>
             <div className="p-3 rounded-xl bg-secondary/10 border border-border/30 hover:bg-secondary/20 transition-colors">
@@ -719,7 +842,7 @@ const PriceElasticityView = ({ brain }: { brain: RetailBrainState }) => {
           </div>
 
           <p className="text-xs text-muted-foreground/60 mt-3 leading-relaxed">
-            Discounting within <span className="text-emerald-400 font-medium">${elasticity.markdownSweetSpot.low.toFixed(2)} – ${elasticity.markdownSweetSpot.high.toFixed(2)}</span> generates
+            Discounting within <span className="text-emerald-400 font-medium">${sweetSpotLow.toFixed(2)} – ${sweetSpotHigh.toFixed(2)}</span> generates
             more total revenue than the current ${sku.price.toFixed(2)} price point due to the disproportionate demand lift.
           </p>
         </div>

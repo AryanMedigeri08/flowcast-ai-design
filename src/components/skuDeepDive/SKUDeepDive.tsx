@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import type { RetailBrainState } from "@/hooks/useRetailBrain";
 import type { SKUTab } from "@/data/types";
 import { getBrand } from "@/data/brands";
@@ -15,6 +15,35 @@ import SignalsView from "@/components/signals/SignalsView";
 import InventoryView from "@/components/inventory/InventoryView";
 import SimulationView from "@/components/simulation/SimulationView";
 import RegistryDemandView from "@/components/skuDeepDive/RegistryDemandView";
+
+/* ── Inject CSS keyframes for health-badge pulse + crossfade ── */
+const ANIM_STYLE_ID = "sku-tab-anims";
+function ensureTabAnimStyles() {
+  if (document.getElementById(ANIM_STYLE_ID)) return;
+  const s = document.createElement("style");
+  s.id = ANIM_STYLE_ID;
+  s.textContent = `
+    @keyframes healthPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+      50%      { box-shadow: 0 0 6px 2px rgba(239,68,68,0.3); }
+    }
+    .tab-panel-leaving {
+      opacity: 0;
+      transform: translateY(-6px);
+      transition: opacity 150ms ease, transform 150ms ease;
+    }
+    .tab-panel-entering {
+      opacity: 1 !important;
+      transform: translateY(0) !important;
+      transition: opacity 250ms cubic-bezier(0.16,1,0.3,1), transform 250ms cubic-bezier(0.16,1,0.3,1);
+    }
+    .tab-panel-pre-enter {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  `;
+  document.head.appendChild(s);
+}
 
 // ─── SKU Health Score computation ──────────────────────────
 function computeHealthScore(brain: RetailBrainState): number {
@@ -108,6 +137,155 @@ const HealthGauge = ({ score }: { score: number }) => {
   );
 };
 
+/* ── Health Badge ────────────────────────────────────────── */
+function HealthBadge({ score }: { score: number }) {
+  if (score >= 100) return null;
+  const isCritical = score < 40;
+  const isAmber = score >= 40 && score <= 69;
+  const bg = isCritical ? "bg-red-500" : isAmber ? "bg-amber-400" : "bg-teal-400";
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full ${bg} ml-1.5 shrink-0`}
+      style={isCritical ? { animation: "healthPulse 2s ease-in-out infinite" } : undefined}
+    />
+  );
+}
+
+/* ── Waterfall Chart ─────────────────────────────────────── */
+import type { DemandDecomposition } from "@/data/types";
+
+const WATERFALL_COLORS = {
+  base: "#378ADD",
+  festival: "#EF9F27",
+  promo: "#1D9E75",
+  weatherPos: "#0EA5E9",
+  weatherNeg: "#D85A30",
+};
+
+function WaterfallChart({ decomposition: d, skuId }: { decomposition: DemandDecomposition; skuId: string }) {
+  const segments = useMemo(() => [
+    { label: "BASE",     raw: d.base,            color: WATERFALL_COLORS.base },
+    { label: "FESTIVAL", raw: d.festivalBoost,   color: WATERFALL_COLORS.festival },
+    { label: "PROMO",    raw: d.promotionBoost,   color: WATERFALL_COLORS.promo },
+    { label: "WEATHER",  raw: d.weatherImpact,    color: d.weatherImpact >= 0 ? WATERFALL_COLORS.weatherPos : WATERFALL_COLORS.weatherNeg },
+  ], [d]);
+
+  const total = d.total;
+
+  // Animation: one progress value per segment (0→1)
+  const [progress, setProgress] = useState<number[]>([0, 0, 0, 0]);
+  const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    setProgress([0, 0, 0, 0]);
+    const STAGGER = 120;
+    const DURATION = 500;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const elapsed = now - t0;
+      const next = segments.map((_, i) => {
+        const segElapsed = elapsed - i * STAGGER;
+        if (segElapsed <= 0) return 0;
+        const t = Math.min(segElapsed / DURATION, 1);
+        return 1 - Math.pow(1 - t, 3);
+      });
+      setProgress(next);
+      if (elapsed < (segments.length - 1) * STAGGER + DURATION) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        setProgress(segments.map(() => 1));
+      }
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [skuId, segments]);
+
+  // Animated running totals
+  const animatedRunning = useMemo(() => {
+    let acc = 0;
+    return segments.map((s, i) => {
+      acc += s.raw * progress[i];
+      return Math.round(acc);
+    });
+  }, [segments, progress]);
+
+  // Scale: largest absolute value → 85% of track width
+  const maxAbs = Math.max(...segments.map(s => Math.abs(s.raw)), 1);
+  const barScale = 85 / maxAbs;
+
+  return (
+    <div>
+      {segments.map((seg, i) => {
+        const absVal = Math.abs(seg.raw);
+        const barW = absVal * barScale * progress[i];
+        const animVal = Math.round(absVal * progress[i]);
+        const isNeg = seg.raw < 0;
+        const prefix = i === 0 ? "" : isNeg ? "−" : "+";
+
+        return (
+          <div
+            key={seg.label}
+            className="grid items-center"
+            style={{ gridTemplateColumns: "56px 1fr 44px", height: 28 }}
+          >
+            <span className="label-micro text-[8px]">{seg.label}</span>
+
+            <div className="relative h-3 rounded-sm overflow-visible">
+              {/* Bar — always starts at left:0 */}
+              <div
+                className="absolute left-0 top-0 h-full rounded-sm"
+                style={{
+                  width: `${barW}%`,
+                  backgroundColor: seg.color,
+                  opacity: progress[i] > 0 ? 0.4 + progress[i] * 0.6 : 0,
+                }}
+              />
+              {/* Value label — right of bar */}
+              <span
+                className="absolute top-0 h-full flex items-center text-[10px] font-mono-data font-semibold"
+                style={{
+                  left: `calc(${barW}% + 6px)`,
+                  color: seg.color,
+                  opacity: progress[i] > 0.15 ? 1 : 0,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {prefix}{animVal}
+              </span>
+            </div>
+
+            <span className="text-[10px] font-mono-data text-muted-foreground/50 text-right tabular-nums">
+              {animatedRunning[i]}
+            </span>
+          </div>
+        );
+      })}
+
+      {/* Total */}
+      <div
+        className="grid items-center border-t border-border/15 pt-1 mt-1"
+        style={{ gridTemplateColumns: "56px 1fr 44px", height: 28 }}
+      >
+        <span className="label-micro text-[8px]">TOTAL</span>
+        <div className="relative h-3 rounded-sm">
+          <div
+            className="absolute left-0 top-0 h-full rounded-sm"
+            style={{
+              width: `${85 * (progress[progress.length - 1] || 0)}%`,
+              background: `linear-gradient(90deg, ${WATERFALL_COLORS.base}30, ${WATERFALL_COLORS.festival}30, ${WATERFALL_COLORS.promo}30)`,
+              border: "1px solid hsl(var(--border) / 0.2)",
+            }}
+          />
+        </div>
+        <span className="text-sm font-semibold font-mono-data text-foreground tracking-tighter text-right tabular-nums">
+          {animatedRunning[animatedRunning.length - 1] || 0}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Main Component ────────────────────────────────────────
 const SKUDeepDive = ({ brain }: { brain: RetailBrainState }) => {
   const sku = brain.currentSKU;
@@ -148,8 +326,65 @@ const SKUDeepDive = ({ brain }: { brain: RetailBrainState }) => {
     ...(showRegistryTab ? [{ id: "registry" as SKUTab, label: "Registry Demand", icon: Heart }] : []),
   ];
 
+  /* ═══ 1. Sliding indicator pill ═══════════════════════════ */
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const [pillStyle, setPillStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
+
+  const recalcPill = useCallback(() => {
+    const btn = tabRefs.current.get(brain.activeTab);
+    const container = tabsContainerRef.current;
+    if (!btn || !container) return;
+    const cRect = container.getBoundingClientRect();
+    const bRect = btn.getBoundingClientRect();
+    setPillStyle({
+      left: bRect.left - cRect.left,
+      width: bRect.width,
+    });
+  }, [brain.activeTab]);
+
+  useLayoutEffect(() => { recalcPill(); }, [recalcPill]);
+
+  useEffect(() => {
+    const container = tabsContainerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver(() => recalcPill());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [recalcPill]);
+
+  /* ═══ 2. Content panel crossfade ══════════════════════════ */
+  const [displayedTab, setDisplayedTab] = useState(brain.activeTab);
+  const [panelClass, setPanelClass] = useState("tab-panel-entering");
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    ensureTabAnimStyles();
+  }, []);
+
+  useEffect(() => {
+    if (brain.activeTab === displayedTab) return;
+
+    // Phase 1: leaving
+    setPanelClass("tab-panel-leaving");
+    const t1 = setTimeout(() => {
+      // Phase 2: swap content + pre-enter
+      setDisplayedTab(brain.activeTab);
+      setPanelClass("tab-panel-pre-enter");
+
+      // Phase 3: entering (rAF to let pre-enter paint first)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setPanelClass("tab-panel-entering");
+        });
+      });
+    }, 150);
+
+    return () => clearTimeout(t1);
+  }, [brain.activeTab, displayedTab]);
+
   const renderOverview = () => (
-    <div className="space-y-6 animate-slide-up">
+    <div className="space-y-6">
       {/* ─── SKU Health Score + Quick Stats ─── */}
       <div className="p-5 rounded-2xl bg-card border border-border/15">
         <div className="flex flex-col md:flex-row items-center gap-6">
@@ -211,38 +446,17 @@ const SKUDeepDive = ({ brain }: { brain: RetailBrainState }) => {
 
         <div className="p-5 rounded-2xl bg-card border border-border/15">
           <p className="text-sm font-semibold text-foreground mb-4">Decomposition</p>
-          {(() => {
-            const latest = brain.decomposition[brain.decomposition.length - 1];
-            return (
-              <div className="space-y-4">
-                {[
-                  { label: "BASE", value: latest.base, color: "text-primary" },
-                  { label: "FESTIVAL", value: `+${latest.festivalBoost}`, color: "text-amber-400" },
-                  { label: "PROMO", value: `+${latest.promotionBoost}`, color: "text-emerald-400" },
-                  { label: "WEATHER", value: latest.weatherImpact >= 0 ? `+${latest.weatherImpact}` : `${latest.weatherImpact}`, color: "text-cyan-400" },
-                ].map((item) => (
-                  <div key={item.label} className="flex items-center justify-between">
-                    <span className="label-micro text-[8px]">{item.label}</span>
-                    <span className={`text-xl font-light font-mono-data tracking-tight ${item.color}`}>{item.value}</span>
-                  </div>
-                ))}
-                <div className="border-t border-border/15 pt-3 flex items-center justify-between">
-                  <span className="label-micro text-[8px]">TOTAL</span>
-                  <span className="text-2xl font-semibold font-mono-data text-foreground tracking-tighter">{latest.total}</span>
-                </div>
-              </div>
-            );
-          })()}
+          <WaterfallChart decomposition={brain.decomposition[brain.decomposition.length - 1]} skuId={sku.id} />
         </div>
       </div>
     </div>
   );
 
   const renderActiveTab = () => {
-    switch (brain.activeTab) {
+    switch (displayedTab) {
       case "predictive-demand":
         return (
-          <div className="space-y-6 animate-slide-up bg-background">
+          <div className="space-y-6 bg-background">
             <div className="grid lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
                 <DemandView forecast={brain.forecast} decomposition={brain.decomposition} skuName={brain.currentSKU.name} />
@@ -263,7 +477,7 @@ const SKUDeepDive = ({ brain }: { brain: RetailBrainState }) => {
         );
       case "orchestration":
         return (
-          <div className="space-y-6 animate-slide-up bg-background">
+          <div className="space-y-6 bg-background">
             <InventoryView data={brain.inventoryDecision} skuName={brain.currentSKU.name} />
             {/* Bring Simulation into Orchestration */}
             <div className="mt-8 border-t border-border/20 pt-6">
@@ -289,27 +503,48 @@ const SKUDeepDive = ({ brain }: { brain: RetailBrainState }) => {
         <h1 className="text-3xl font-light tracking-tight text-foreground">{sku.name}</h1>
         <p className="text-sm text-muted-foreground mt-1">{sku.category} · <span className="font-mono-data">${sku.price.toLocaleString()}</span></p>
         
-        <div className="mt-8 flex items-center overflow-x-auto no-scrollbar gap-2">
-          {tabs.map((tab) => {
-            const isActive = brain.activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => brain.setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-5 py-3 border-b-2 transition-all 
-                  ${isActive ? "border-primary text-foreground font-medium bg-primary/[0.03]" : "border-transparent text-muted-foreground/70 hover:text-foreground hover:bg-secondary/20"}`}
-              >
-                <tab.icon className={`w-4 h-4 ${isActive ? "text-primary" : "text-muted-foreground/50"}`} />
-                <span className="text-[13px]">{tab.label}</span>
-              </button>
-            );
-          })}
+        {/* ═══ Tab strip with sliding pill ══════════════════ */}
+        <div className="mt-8 relative" ref={tabsContainerRef}>
+          <div className="flex items-center overflow-x-auto no-scrollbar gap-2">
+            {tabs.map((tab) => {
+              const isActive = brain.activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  ref={(el) => { if (el) tabRefs.current.set(tab.id, el); }}
+                  onClick={() => brain.setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-5 py-3 transition-all relative whitespace-nowrap
+                    ${isActive ? "text-foreground font-medium" : "text-muted-foreground/70 hover:text-foreground hover:bg-secondary/20"}`}
+                >
+                  <tab.icon className={`w-4 h-4 ${isActive ? "text-primary" : "text-muted-foreground/50"}`} />
+                  <span className="text-[13px]">{tab.label}</span>
+                  {/* Health badge on Predictive Demand tab */}
+                  {tab.id === "predictive-demand" && <HealthBadge score={healthScore} />}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Sliding pill indicator */}
+          <div
+            className="absolute bottom-0 h-[2px] bg-primary"
+            style={{
+              left: pillStyle.left,
+              width: pillStyle.width,
+              borderRadius: "2px 2px 0 0",
+              transition: "left 0.25s cubic-bezier(0.16,1,0.3,1), width 0.25s cubic-bezier(0.16,1,0.3,1)",
+            }}
+          />
         </div>
       </div>
 
-      <div>{renderActiveTab()}</div>
+      {/* ═══ Animated content panel ═════════════════════════ */}
+      <div ref={panelRef} className={panelClass}>
+        {renderActiveTab()}
+      </div>
     </div>
   );
 };
 
 export default SKUDeepDive;
+

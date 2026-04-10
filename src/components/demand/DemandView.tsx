@@ -1,23 +1,68 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
 import {
   ComposedChart, Area, Line, XAxis, YAxis,
   Tooltip, ResponsiveContainer, ReferenceLine, CartesianGrid,
 } from "recharts";
 import type { ForecastPoint, DemandDecomposition } from "@/data/types";
 
-const DemandView = ({
-  forecast,
-  decomposition,
-  skuName,
-}: {
+/* ── Expose replay capability to parent ─────────────────── */
+export interface DemandViewHandle {
+  replay: () => void;
+}
+
+/* ── CSS keyframes injected once ────────────────────────── */
+const ANIM_STYLE_ID = "demand-chart-anims";
+function ensureAnimStyles() {
+  if (document.getElementById(ANIM_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = ANIM_STYLE_ID;
+  style.textContent = `
+    @keyframes drawLine {
+      to { stroke-dashoffset: 0; }
+    }
+    @keyframes fadeInCI {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    @keyframes growRefLine {
+      from { transform: scaleY(0); }
+      to   { transform: scaleY(1); }
+    }
+    @keyframes fadeInLabel {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+const DemandView = forwardRef<DemandViewHandle, {
   forecast: ForecastPoint[];
   decomposition: DemandDecomposition[];
   skuName: string;
-}) => {
+}>(({ forecast, decomposition, skuName }, ref) => {
   const [showConfidence, setShowConfidence] = useState(true);
   const [showActual, setShowActual] = useState(true);
   const [showPredicted, setShowPredicted] = useState(true);
   const [horizon, setHorizon] = useState<7 | 14>(14);
+
+  /* ── Animation state ─────────────────────────────────── */
+  const [animKey, setAnimKey] = useState(0);
+  const [ciBandVisible, setCiBandVisible] = useState(false);
+  const [todayVisible, setTodayVisible] = useState(false);
+  const [todayLabelVisible, setTodayLabelVisible] = useState(false);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<MutationObserver | null>(null);
+
+  const replay = useCallback(() => {
+    setCiBandVisible(false);
+    setTodayVisible(false);
+    setTodayLabelVisible(false);
+    setAnimKey((k) => k + 1);
+  }, []);
+
+  // Expose replay to parent via ref
+  useImperativeHandle(ref, () => ({ replay }), [replay]);
 
   // Filter forecast data by selected horizon
   const filteredForecast = useMemo(() => forecast.slice(0, horizon), [forecast, horizon]);
@@ -29,6 +74,87 @@ const DemandView = ({
   const totalPredicted = filteredForecast.reduce((s, f) => s + f.predicted, 0);
   const totalActual = filteredForecast.reduce((s, f) => s + (f.actual || 0), 0);
   const accuracy = totalActual > 0 ? ((1 - Math.abs(totalPredicted - totalActual) / totalActual) * 100) : 0;
+
+  /* ── Draw-on animation via MutationObserver ──────────── */
+  useEffect(() => {
+    ensureAnimStyles();
+
+    const container = chartContainerRef.current;
+    if (!container) return;
+
+    // Disconnect any previous observer
+    observerRef.current?.disconnect();
+
+    const animatePaths = () => {
+      const svg = container.querySelector("svg");
+      if (!svg) return false;
+
+      // 1) Animate the predicted line (purple stroke, dataKey="predicted")
+      const lines = svg.querySelectorAll<SVGPathElement>(".recharts-line-curve");
+      let animated = false;
+      lines.forEach((path) => {
+        const stroke = path.getAttribute("stroke");
+        if (!stroke) return;
+        const len = path.getTotalLength();
+        if (len <= 0) return;
+        path.style.strokeDasharray = `${len}`;
+        path.style.strokeDashoffset = `${len}`;
+        path.style.animation = `drawLine 1.4s cubic-bezier(0.16,1,0.3,1) forwards`;
+        animated = true;
+      });
+
+      // Also animate the actual area stroke
+      const areaStrokes = svg.querySelectorAll<SVGPathElement>(".recharts-area-curve");
+      areaStrokes.forEach((path) => {
+        const stroke = path.getAttribute("stroke");
+        if (stroke && stroke !== "none") {
+          const len = path.getTotalLength();
+          if (len > 0) {
+            path.style.strokeDasharray = `${len}`;
+            path.style.strokeDashoffset = `${len}`;
+            path.style.animation = `drawLine 1.4s cubic-bezier(0.16,1,0.3,1) forwards`;
+            animated = true;
+          }
+        }
+      });
+
+      return animated;
+    };
+
+    // Use MutationObserver to wait for Recharts to render paths
+    const obs = new MutationObserver((mutations, observer) => {
+      const success = animatePaths();
+      if (success) {
+        observer.disconnect();
+
+        // 2) Confidence band fade-in at 400ms
+        setTimeout(() => setCiBandVisible(true), 400);
+
+        // 3) Today reference line at 200ms, label at 600ms
+        setTimeout(() => setTodayVisible(true), 200);
+        setTimeout(() => setTodayLabelVisible(true), 600);
+      }
+    });
+
+    obs.observe(container, { childList: true, subtree: true });
+    observerRef.current = obs;
+
+    // Also try immediately (if chart already rendered from previous key)
+    const immediate = setTimeout(() => {
+      const success = animatePaths();
+      if (success) {
+        obs.disconnect();
+        setTimeout(() => setCiBandVisible(true), 400);
+        setTimeout(() => setTodayVisible(true), 200);
+        setTimeout(() => setTodayLabelVisible(true), 600);
+      }
+    }, 100);
+
+    return () => {
+      obs.disconnect();
+      clearTimeout(immediate);
+    };
+  }, [animKey, horizon, showPredicted, showActual]);
 
   // Custom tooltip
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -79,6 +205,30 @@ const DemandView = ({
     );
   };
 
+  /* ── Custom "Today" label component for ReferenceLine ── */
+  const TodayLabel = (props: any) => {
+    const { viewBox } = props;
+    if (!viewBox) return null;
+    return (
+      <g>
+        <text
+          x={viewBox.x + 4}
+          y={18}
+          fill="hsl(217 91% 60%)"
+          fontSize={9}
+          fontWeight={600}
+          style={{
+            opacity: todayLabelVisible ? 1 : 0,
+            transform: todayLabelVisible ? "translateY(0)" : "translateY(-4px)",
+            transition: "opacity 0.4s ease, transform 0.4s ease",
+          }}
+        >
+          Today
+        </text>
+      </g>
+    );
+  };
+
   return (
     <div className="space-y-6 animate-slide-up">
       {/* ─── Header ─── */}
@@ -95,7 +245,7 @@ const DemandView = ({
             {([7, 14] as const).map((d) => (
               <button
                 key={d}
-                onClick={() => setHorizon(d)}
+                onClick={() => { setHorizon(d); replay(); }}
                 className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all duration-200 ${
                   horizon === d
                     ? "bg-primary/15 text-primary shadow-sm shadow-primary/10 border border-primary/20"
@@ -125,7 +275,7 @@ const DemandView = ({
         ].map(toggle => (
           <button
             key={toggle.key}
-            onClick={() => toggle.setter(!toggle.state)}
+            onClick={() => { toggle.setter(!toggle.state); replay(); }}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all ${
               toggle.state
                 ? "bg-secondary/40 text-foreground"
@@ -149,7 +299,7 @@ const DemandView = ({
 
       {/* ─── Full-bleed forecast chart ─── */}
       <div className="relative -mx-6">
-        <div className="h-[320px] w-full">
+        <div className="h-[320px] w-full" ref={chartContainerRef} key={animKey}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart 
               data={filteredForecast.map((d) => ({
@@ -179,15 +329,19 @@ const DemandView = ({
               />
               <Tooltip content={<CustomTooltip />} />
               
-              {/* Confidence band */}
+              {/* Confidence band — opacity animated */}
               {showConfidence && (
                 <Area 
                   type="monotone" 
                   dataKey="confidence" 
                   stroke="none" 
                   fill="#9333ea" 
-                  fillOpacity={0.15}
-                  name="Confidence Band" 
+                  fillOpacity={ciBandVisible ? 0.15 : 0}
+                  name="Confidence Band"
+                  animationDuration={0}
+                  style={{
+                    transition: "fill-opacity 0.6s cubic-bezier(0.16,1,0.3,1)",
+                  }}
                 />
               )}
               
@@ -203,6 +357,7 @@ const DemandView = ({
                   activeDot={{ r: 5, fill: "hsl(217 91% 60%)", stroke: "hsl(228 14% 5%)", strokeWidth: 2 }}
                   connectNulls={false}
                   name="Actual"
+                  animationDuration={0}
                 />
               )}
               
@@ -216,6 +371,19 @@ const DemandView = ({
                   dot={false}
                   activeDot={{ r: 6, fill: "#c084fc", stroke: "#0c0f17", strokeWidth: 2 }}
                   name="Forecast"
+                  animationDuration={0}
+                />
+              )}
+
+              {/* Today marker */}
+              {todayDate && (
+                <ReferenceLine
+                  x={todayDate}
+                  stroke="hsl(217 91% 60%)"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  strokeOpacity={todayVisible ? 0.5 : 0}
+                  label={<TodayLabel />}
                 />
               )}
             </ComposedChart>
@@ -294,6 +462,8 @@ const DemandView = ({
       </div>
     </div>
   );
-};
+});
+
+DemandView.displayName = "DemandView";
 
 export default DemandView;
