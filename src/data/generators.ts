@@ -1326,7 +1326,7 @@ export function generateElasticity(skuId: string): ElasticityResult {
   const competitorTimeline: CompetitorPriceTrendPoint[] = [];
   const trendRng = seeded(hashStr(skuId + "comptimeline"));
   let competitorRunningPrice = competitorAnchor * (1.02 + trendRng() * 0.06); // start slightly higher than anchor
-  const yourRunningPrice = sku.price; // your price is stable
+  let yourRunningPrice = sku.price; // Start stable
   for (let d = 0; d < 30; d++) {
     // Random walk for competitor: drift downward with occasional bumps
     const dailyChange = (trendRng() - 0.55) * sku.price * 0.012; // slight downward bias
@@ -1338,6 +1338,16 @@ export function generateElasticity(skuId: string): ElasticityResult {
     if (trendRng() > 0.92) {
       competitorRunningPrice -= sku.price * (0.03 + trendRng() * 0.05);
     }
+    
+    // Dynamic 'Your Price' Logic (Simulate promotional periods)
+    if (trendRng() > 0.90 && yourRunningPrice === sku.price) {
+      // Initiate a temporary price drop (5% to 20% discount)
+      yourRunningPrice = sku.price * (0.8 + trendRng() * 0.15);
+    } else if (yourRunningPrice < sku.price && trendRng() > 0.6) {
+      // Snap back to baseline price after a few days
+      yourRunningPrice = sku.price;
+    }
+
     const undercutPct = parseFloat((((competitorRunningPrice - yourRunningPrice) / yourRunningPrice) * 100).toFixed(1));
     competitorTimeline.push({
       day: `Day ${d + 1}`,
