@@ -6,7 +6,7 @@ import { skuCatalog } from "@/data/brands";
 import { generateDemandForecast } from "@/data/generators";
 import {
   Package, AlertTriangle, MapPin, Tag, ArrowRight,
-  TrendingUp, TrendingDown, Award, LayoutDashboard, BarChart3, FlaskConical, Radio, Heart
+  TrendingUp, TrendingDown, Award, LayoutDashboard, BarChart3, FlaskConical, Radio, Heart, Undo2
 } from "lucide-react";
 
 import DemandView from "@/components/demand/DemandView";
@@ -15,6 +15,7 @@ import SignalsView from "@/components/signals/SignalsView";
 import InventoryView from "@/components/inventory/InventoryView";
 import SimulationView from "@/components/simulation/SimulationView";
 import RegistryDemandView from "@/components/skuDeepDive/RegistryDemandView";
+import ReturnsView from "@/components/returns/ReturnsView";
 
 /* ── Inject CSS keyframes for health-badge pulse + crossfade ── */
 const ANIM_STYLE_ID = "sku-tab-anims";
@@ -323,6 +324,7 @@ const SKUDeepDive = ({ brain }: { brain: RetailBrainState }) => {
     { id: "overview", label: "Overview", icon: LayoutDashboard },
     { id: "predictive-demand", label: "Predictive Demand", icon: BarChart3 },
     { id: "orchestration", label: "Inventory Orchestration", icon: FlaskConical },
+    { id: "returns" as SKUTab, label: "Returns & Phantom", icon: Undo2 },
     ...(showRegistryTab ? [{ id: "registry" as SKUTab, label: "Registry Demand", icon: Heart }] : []),
   ];
 
@@ -487,6 +489,12 @@ const SKUDeepDive = ({ brain }: { brain: RetailBrainState }) => {
         );
       case "registry":
         return <RegistryDemandView brain={brain} />;
+      case "returns":
+        return (
+          <div className="space-y-6 bg-background">
+            <ReturnsView data={brain.returnAnalysis} skuName={brain.currentSKU.name} returnExplanation={brain.explanation} />
+          </div>
+        );
       case "overview":
       default:
         return renderOverview();

@@ -427,6 +427,7 @@ export type SKUTab =
   | "overview"
   | "predictive-demand"
   | "orchestration"
-  | "registry";
+  | "registry"
+  | "returns";
 
 

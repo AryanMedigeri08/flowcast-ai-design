@@ -9,6 +9,7 @@ import {
   Brain, Target,
 } from "lucide-react";
 import type { ReturnAnalysis, Explanation } from "@/data/types";
+import PhantomDemand from "./PhantomDemand";
 
 const trendIcons = { up: TrendingUp, down: TrendingDown, stable: Minus };
 
@@ -77,43 +78,35 @@ const ReturnsView = ({
         </div>
       </div>
 
-      {/* ─── Three-metric strip ─── */}
-      <div className="grid grid-cols-4 gap-px bg-border/20 rounded-xl overflow-hidden">
-        <div className="bg-card p-4">
-          <p className="text-2xl font-light font-mono-data text-foreground tracking-tight">
-            {(data.returnRate * 100).toFixed(1)}%
-          </p>
-          <p className="label-micro text-[8px] mt-1">RETURN RATE</p>
-        </div>
-        <div className="bg-card p-4">
-          <p className="text-2xl font-light font-mono-data text-muted-foreground tracking-tight">
-            {(data.categoryAvgReturn * 100).toFixed(1)}%
-          </p>
-          <p className="label-micro text-[8px] mt-1">CATEGORY AVG</p>
-        </div>
-        <div className="bg-card p-4">
-          <p className="text-2xl font-light font-mono-data text-foreground tracking-tight">{data.reportedDemand}</p>
-          <p className="label-micro text-[8px] mt-1">REPORTED SALES</p>
-        </div>
-        <div className="bg-card p-4">
-          <p className="text-2xl font-light font-mono-data text-emerald-400 tracking-tight">{data.trueDemand}</p>
-          <p className="label-micro text-[8px] mt-1">TRUE DEMAND</p>
-        </div>
+      {/* ─── Metric Strip ─── */}
+      <div className="grid grid-cols-4 gap-5">
+        {[
+          { label: "RETURN RATE", value: `${(data.returnRate * 100).toFixed(1)}%`, valClass: "text-foreground" },
+          { label: "CATEGORY AVG", value: `${(data.categoryAvgReturn * 100).toFixed(1)}%`, valClass: "text-muted-foreground" },
+          { label: "REPORTED SALES", value: data.reportedDemand, valClass: "text-foreground" },
+          { label: "TRUE DEMAND", value: data.trueDemand, valClass: "text-emerald-400" },
+        ].map((m, i) => (
+          <div key={i} className="glass rounded-2xl p-6 border border-border/10 flex flex-col justify-center">
+            <p className={`text-4xl font-light font-mono-data tracking-tight ${m.valClass}`}>{m.value}</p>
+            <p className="label-micro text-[9px] mt-3">{m.label}</p>
+          </div>
+        ))}
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* ─── LEFT: Return Risk Factors (SHAP-like) ─── */}
-        <div>
-          <button
-            onClick={() => setShowRiskFactors(!showRiskFactors)}
-            className="w-full flex items-center justify-between mb-3"
-          >
-            <div className="flex items-center gap-2">
-              <Shield className="w-3.5 h-3.5 text-primary/50" />
-              <p className="label-micro text-[9px]">RISK FACTOR ANALYSIS</p>
-            </div>
-            {showRiskFactors ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground/40" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/40" />}
-          </button>
+        <div className="space-y-6">
+          <div className="glass rounded-2xl p-6 overflow-hidden">
+            <button
+              onClick={() => setShowRiskFactors(!showRiskFactors)}
+              className="w-full flex items-center justify-between mb-4"
+            >
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-primary/70" />
+                <p className="label-micro text-[10px]">RISK FACTOR ANALYSIS</p>
+              </div>
+              {showRiskFactors ? <ChevronUp className="w-4 h-4 text-muted-foreground/40" /> : <ChevronDown className="w-4 h-4 text-muted-foreground/40" />}
+            </button>
           
           {showRiskFactors && (
             <div className="space-y-2.5">
@@ -160,11 +153,12 @@ const ReturnsView = ({
               </div>
             </div>
           )}
+        </div>
 
           {/* ─── Return Trend Chart ─── */}
-          <div className="mt-5">
-            <p className="label-micro text-[9px] mb-3">6-MONTH RETURN TREND</p>
-            <div className="h-[150px]">
+          <div className="glass rounded-2xl p-6">
+            <p className="label-micro text-[10px] mb-5">6-MONTH RETURN TREND</p>
+            <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={data.historicalTrend} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
                   <defs>
@@ -180,7 +174,7 @@ const ReturnsView = ({
                     contentStyle={{ background: "hsl(225 15% 9%)", border: "1px solid hsl(225 12% 16%)", borderRadius: "10px", fontSize: "11px" }}
                     formatter={(value: number) => [`${(value * 100).toFixed(1)}%`, "Return Rate"]}
                   />
-                  <Area type="monotone" dataKey="rate" stroke="hsl(0 72% 51%)" strokeWidth={2} fill="url(#trendGrad)" dot={{ fill: "hsl(0 72% 51%)", r: 3, strokeWidth: 0 }} />
+                  <Area type="monotone" dataKey="rate" stroke="hsl(0 72% 51%)" strokeWidth={3} fill="url(#trendGrad)" dot={{ fill: "hsl(0 72% 51%)", r: 4, strokeWidth: 0 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -188,11 +182,11 @@ const ReturnsView = ({
         </div>
 
         {/* ─── RIGHT: Reasons + Phantom + Fixes ─── */}
-        <div className="space-y-5">
+        <div className="space-y-6">
           {/* Reason Heat Bars */}
-          <div>
-            <p className="label-micro text-[9px] mb-3">RETURN REASONS</p>
-            <div className="space-y-2">
+          <div className="glass rounded-2xl p-6">
+            <p className="label-micro text-[10px] mb-5">RETURN REASONS</p>
+            <div className="space-y-3">
               {data.reasons.map((r) => {
                 const intensity = r.percentage / maxPct;
                 const TrendIcon = trendIcons[r.trend];
@@ -225,39 +219,13 @@ const ReturnsView = ({
           </div>
 
           {/* Phantom Demand */}
-          <div className="p-4 rounded-xl bg-secondary/20">
-            <div className="flex items-center gap-2 mb-3">
-              <Ghost className="w-4 h-4 text-accent/60" />
-              <p className="text-xs font-semibold text-foreground">Phantom Demand Correction</p>
-            </div>
-            <div className="font-mono-data text-xs text-muted-foreground mb-3 leading-relaxed">
-              <span className="text-emerald-400">True</span> = <span className="text-primary">{data.reportedDemand}</span> − (<span className="text-amber-400">{(data.returnRate * 100).toFixed(1)}%</span> × <span className="text-primary">{data.reportedDemand}</span>) = <span className="text-emerald-400 font-semibold">{data.trueDemand}</span>
-            </div>
-            <div className="flex items-center gap-0 h-8 rounded-lg overflow-hidden">
-              <div
-                className="h-full flex items-center justify-center text-[10px] font-mono-data text-emerald-400/80 bg-emerald-500/10"
-                style={{ width: `${(data.trueDemand / data.reportedDemand) * 100}%` }}
-              >
-                {data.trueDemand}
-              </div>
-              <div
-                className="h-full flex items-center justify-center text-[10px] font-mono-data text-destructive/60 bg-destructive/[0.06]"
-                style={{ width: `${(data.phantomDemandGap / data.reportedDemand) * 100}%` }}
-              >
-                {data.phantomDemandGap}
-              </div>
-            </div>
-            <div className="flex justify-between mt-1">
-              <span className="text-[9px] text-muted-foreground/40">Real demand</span>
-              <span className="text-[9px] text-muted-foreground/40">Phantom ({((data.phantomDemandGap / data.reportedDemand) * 100).toFixed(1)}%)</span>
-            </div>
-          </div>
+          <PhantomDemand data={data} />
 
           {/* Suggested Fixes */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Wrench className="w-3.5 h-3.5 text-muted-foreground/40" />
-              <p className="label-micro text-[9px]">SUGGESTED FIXES</p>
+          <div className="glass rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Wrench className="w-4 h-4 text-muted-foreground/60" />
+              <p className="label-micro text-[10px]">SUGGESTED FIXES</p>
             </div>
             <div className="space-y-1.5">
               {data.suggestedFixes.map((fix, i) => (
