@@ -167,11 +167,12 @@ const ReturnsView = ({
                       <stop offset="100%" stopColor="hsl(0 72% 51%)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(225 12% 14%)" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 9, fill: "hsl(220 10% 36%)" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 9, fill: "hsl(220 10% 36%)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.5)" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
                   <Tooltip
-                    contentStyle={{ background: "hsl(225 15% 9%)", border: "1px solid hsl(225 12% 16%)", borderRadius: "10px", fontSize: "11px" }}
+                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "10px", fontSize: "11px", color: "hsl(var(--foreground))" }}
+                    itemStyle={{ color: "hsl(var(--foreground))" }}
                     formatter={(value: number) => [`${(value * 100).toFixed(1)}%`, "Return Rate"]}
                   />
                   <Area type="monotone" dataKey="rate" stroke="hsl(0 72% 51%)" strokeWidth={3} fill="url(#trendGrad)" dot={{ fill: "hsl(0 72% 51%)", r: 4, strokeWidth: 0 }} />
