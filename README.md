@@ -102,7 +102,7 @@ flowcast-ai-design/
 │   │   ├── generators.ts         # Statistically-grounded data generators
 │   │   └── types.ts              # Full TypeScript type system
 │   ├── hooks/
-│   │   └── useRetailBrain.ts     # Central state + ML bridge
+│   │   └── useFlowcast.ts     # Central state + ML bridge
 │   └── pages/
 │       ├── Index.tsx              # Landing page
 │       └── Dashboard.tsx          # Main dashboard shell

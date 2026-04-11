@@ -1,8 +1,20 @@
 import { Link } from "react-router-dom";
+import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import {
   ArrowRight, BarChart3, Radio, Undo2, Package,
   FlaskConical, Brain, Activity, Zap, LayoutDashboard,
 } from "lucide-react";
+
+const mockDemandData = [
+  { day: "Mon", base: 120, forecast: 130 },
+  { day: "Tue", base: 132, forecast: 145 },
+  { day: "Wed", base: 101, forecast: 110 },
+  { day: "Thu", base: 143, forecast: 160 },
+  { day: "Fri", base: 210, forecast: 240 },
+  { day: "Sat", base: 250, forecast: 290 },
+  { day: "Sun", base: 190, forecast: 215 },
+];
+
 
 const Index = () => {
   return (
@@ -16,7 +28,7 @@ const Index = () => {
             </div>
             <div>
               <span className="text-lg font-bold tracking-tight text-foreground">
-                Retail<span className="text-primary">Brain</span>
+                Flow<span className="text-primary">cast</span>
               </span>
               <p className="text-[9px] text-muted-foreground leading-none -mt-0.5">
                 Williams-Sonoma Inc.
@@ -61,7 +73,7 @@ const Index = () => {
             </div>
 
             <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05] mb-6 animate-slide-up-delay-1">
-              Retail<span className="text-gradient">Brain</span>
+              Flow<span className="text-gradient">cast</span>
             </h1>
 
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-4 animate-slide-up-delay-2">
@@ -110,22 +122,36 @@ const Index = () => {
                   </div>
                 ))}
               </div>
-              <div className="h-[200px] rounded-xl bg-secondary/20 border border-border/10 flex items-center justify-center overflow-hidden relative">
-                {/* Animated wave lines */}
-                <svg className="absolute inset-0 w-full h-full opacity-30" viewBox="0 0 800 200" preserveAspectRatio="none">
-                  <path
-                    d="M0,120 C100,80 200,140 300,100 C400,60 500,130 600,90 C700,50 800,110 800,110 L800,200 L0,200 Z"
-                    fill="url(#heroGrad)"
-                    className="animate-pulse-glow"
-                  />
-                  <defs>
-                    <linearGradient id="heroGrad" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stopColor="hsl(215 90% 60%)" stopOpacity="0.3" />
-                      <stop offset="100%" stopColor="hsl(260 60% 65%)" stopOpacity="0.1" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-                <p className="text-sm text-muted-foreground/40 z-10">Live demand intelligence preview</p>
+              <div className="h-[220px] rounded-xl bg-card border border-border/10 flex flex-col pt-3 pr-3 pb-0 pl-0 relative overflow-hidden">
+                <div className="absolute top-3 left-4 flex items-center gap-2 z-10">
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20">
+                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                     <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Live Prediction</span>
+                  </div>
+                </div>
+                <div className="flex-1 w-full mt-6">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={mockDemandData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorForecast" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="hsl(215 90% 60%)" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="hsl(215 90% 60%)" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorBase" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="hsl(260 60% 65%)" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="hsl(260 60% 65%)" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} dy={8} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                      <Tooltip 
+                        contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "11px", color: "hsl(var(--foreground))", boxShadow: "0 8px 32px -8px rgba(0,0,0,0.15)" }}
+                      />
+                      <Area type="monotone" dataKey="base" stroke="hsl(260 60% 65%)" fillOpacity={1} fill="url(#colorBase)" strokeWidth={2} name="Base Demand" />
+                      <Area type="monotone" dataKey="forecast" stroke="hsl(215 90% 60%)" fillOpacity={1} fill="url(#colorForecast)" strokeWidth={2} name="Predicted Surge" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </div>
           </div>
@@ -140,7 +166,7 @@ const Index = () => {
               8 Core Intelligence Modules
             </h2>
             <p className="text-sm text-muted-foreground max-w-lg mx-auto">
-              Each module works independently and fuses together through the Retail Brain Orchestrator
+              Each module works independently and fuses together through the Flowcast Orchestrator
             </p>
           </div>
 
@@ -247,7 +273,7 @@ const Index = () => {
             Ready to see your supply chain clearly?
           </h2>
           <p className="text-muted-foreground mb-8">
-            Explore the full Retail Brain dashboard with live data from all WSI brands.
+            Explore the full Flowcast dashboard with live data from all WSI brands.
           </p>
           <Link
             to="/dashboard"
@@ -266,7 +292,7 @@ const Index = () => {
           <div className="flex items-center gap-2.5">
             <Activity className="w-4 h-4 text-primary" />
             <span className="text-sm text-muted-foreground">
-              Retail<span className="text-primary font-semibold">Brain</span> · Williams-Sonoma Inc.
+              Flow<span className="text-primary font-semibold">cast</span> · Williams-Sonoma Inc.
             </span>
           </div>
           <span className="text-xs text-muted-foreground/40">Phase 1 · Autonomous Supply Chain Intelligence</span>

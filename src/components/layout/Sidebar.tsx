@@ -38,7 +38,7 @@ const Sidebar = ({
         </div>
         {!collapsed && (
           <span className="text-[15px] font-semibold tracking-tight text-foreground whitespace-nowrap">
-            Retail<span className="text-primary">Brain</span>
+            Flow<span className="text-primary">cast</span>
           </span>
         )}
       </div>
